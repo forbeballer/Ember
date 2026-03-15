@@ -1,0 +1,361 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pressure Point</title>
+    <style>
+        body { margin: 0; background: #000; overflow: hidden; font-family: 'Courier New', Courier, monospace; }
+        canvas { display: block; margin: 0 auto; background: linear-gradient(#1e3c72, #000428); }
+        #ui { position: absolute; top: 10px; left: 10px; color: white; pointer-events: none; z-index: 5; }
+        #startScreen {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0, 0, 0, 0.85); color: white;
+            display: flex; flex-direction: column; justify-content: center; align-items: center;
+            text-align: center; z-index: 10;
+        }
+        button { 
+            padding: 15px 30px; font-size: 20px; cursor: pointer; 
+            background: #00ffff; border: none; font-weight: bold; margin-top: 20px;
+            box-shadow: 0 0 15px #00ffff;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="startScreen">
+        <h1>BENEATH THE SURFACE</h1>
+        <p>Pilot your sub with <b>WASD</b>.</p>
+        <p>Collect <b>Bubbles</b> for Oxygen.</p>
+        <p><b>Left Click</b> to zap <b>Jellyfish</b>.</p>
+        <p>Dont die</p>
+        <button onclick="startGame()">Pls Click :D</button>
+    </div>
+
+    <div id="ui">
+        <div>DEPTH: <span id="depth">0</span>m</div>
+        <div style="width: 200px; height: 10px; border: 1px solid white; margin-top: 5px;">
+            <div id="oxyBar" style="width: 100%; height: 100%; background: #00ffff;"></div>
+        </div>
+        <div id="sharkHealthUI" style="display: none; margin-top: 20px;">
+            <div>SHARK HP: <span id="sharkHealthValue"></span></div>
+            <div style="width: 200px; height: 10px; border: 1px solid red; margin-top: 5px;">
+                <div id="sharkHpBar" style="width: 100%; height: 100%; background: red;"></div>
+            </div>
+        </div>
+    </div>
+    <canvas id="gameCanvas"></canvas>
+
+<script>
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+const depthEl = document.getElementById('depth');
+const oxyBar = document.getElementById('oxyBar');
+const startScreen = document.getElementById('startScreen');
+const sharkHealthUI = document.getElementById('sharkHealthUI'); 
+const sharkHealthValue = document.getElementById('sharkHealthValue');
+const sharkHpBar = document.getElementById('sharkHpBar');
+
+canvas.width = window.innerWidth;
+canvas.height = window.innerHeight;
+
+let player = {
+    x: canvas.width / 2, y: 100,
+    width: 40, height: 25,
+    dx: 0, dy: 0, speed: 0.6,
+    oxygen: 100, depth: 0
+};
+
+let keys = {};
+let bubbles = []; 
+let enemies = []; 
+let zaps = []; 
+let particles = []; 
+let gameActive = false;
+let gameStartTime = 0; 
+let bossFightActive = false;
+
+// Tysm gemini!! :D - Complex Shark boss object and state
+let shark = {
+    x: -300, y: canvas.height / 2,
+    width: 200, height: 80,
+    health: 50,
+    speed: 3,
+    active: false,
+    attackCooldown: 100, 
+    currentCooldown: 0
+};
+
+window.addEventListener('keydown', (e) => keys[e.code] = true);
+window.addEventListener('keyup', (e) => keys[e.code] = false);
+
+window.addEventListener('mousedown', (e) => {
+    if(gameActive && e.button === 0) attack(e.clientX, e.clientY);
+});
+
+function startGame() {
+    startScreen.style.display = 'none';
+    gameActive = true;
+    gameStartTime = Date.now(); 
+    draw();
+}
+
+function spawnEntities() {
+    if (!gameActive || bossFightActive) return; 
+    if (Math.random() < 0.04) {
+        bubbles.push({ x: Math.random() * canvas.width, y: canvas.height + 50, size: 15, speed: 1 + Math.random() * 2 });
+    }
+    if (Math.random() < 0.02) {
+        enemies.push({ x: Math.random() * canvas.width, y: canvas.height + 50, size: 20, speed: 1.2 + (player.depth / 1500) });
+    }
+}
+
+// Tysm gemini!! :D - Recursive Math for the lightning bolts segments
+function createLightning(startX, startY, endX, endY) {
+    let segments = [];
+    let curX = startX;
+    let curY = startY;
+    let parts = 8;
+    for (let i = 0; i < parts; i++) {
+        let targetX = curX + (endX - curX) / (parts - i) + (Math.random() * 40 - 20);
+        let targetY = curY + (endY - curY) / (parts - i) + (Math.random() * 40 - 20);
+        segments.push({x1: curX, y1: curY, x2: targetX, y2: targetY});
+        curX = targetX; curY = targetY;
+    }
+    segments.push({x1: curX, y1: curY, x2: endX, y2: endY});
+    return segments;
+}
+
+function attack(mouseX, mouseY) {
+    zaps.push({ lines: createLightning(player.x, player.y, mouseX, mouseY), timer: 10 });
+
+    if (shark.active) {
+        let dist = Math.hypot(mouseX - shark.x, mouseY - shark.y);
+        if (dist < shark.width / 1.5) { 
+            shark.health -= 1;
+            sharkHealthValue.innerText = shark.health;
+            sharkHpBar.style.width = (shark.health / 50) * 100 + "%";
+            for(let i=0; i<5; i++) particles.push({x: mouseX, y: mouseY, dx: Math.random()*5-2.5, dy: Math.random()*5-2.5, life: 20, color: 'rgba(0, 255, 255, 0.7)'});
+            if (shark.health <= 0) {
+                alert("You defeated the mighty shark! You can now explore peacefully.");
+                shark.active = false;
+                bossFightActive = false;
+                sharkHealthUI.style.display = 'none';
+            }
+        }
+    }
+
+    enemies.forEach((en, index) => {
+        if (Math.hypot(mouseX - en.x, mouseY - en.y) < 70) {
+            for(let i=0; i<10; i++) particles.push({x: en.x, y: en.y, dx: Math.random()*4-2, dy: Math.random()*4-2, life: 30, color: '#ff66cc'});
+            enemies.splice(index, 1);
+        }
+    });
+}
+
+function update() {
+    if (!gameActive) return;
+
+    if (!bossFightActive && (Date.now() - gameStartTime) / 1000 >= 30) {
+        bossFightActive = true;
+        shark.active = true;
+        shark.x = -shark.width; 
+        shark.y = player.y;
+        sharkHealthUI.style.display = 'block';
+        sharkHealthValue.innerText = shark.health;
+        sharkHpBar.style.width = "100%";
+    }
+
+    if (keys['KeyW']) player.dy -= player.speed;
+    if (keys['KeyS']) player.dy += player.speed;
+    if (keys['KeyA']) player.dx -= player.speed;
+    if (keys['KeyD']) player.dx += player.speed;
+    
+    player.dy *= 0.96; player.dx *= 0.96;
+    player.y += player.dy; player.x += player.dx;
+
+    if(Math.abs(player.dx) > 0.1 || Math.abs(player.dy) > 0.1) {
+        particles.push({x: player.x, y: player.y + 10, dx: -player.dx*0.2, dy: 1, life: 20, color: 'rgba(255,255,255,0.3)'});
+    }
+
+    player.oxygen -= 0.06; 
+    oxyBar.style.width = player.oxygen + "%";
+    player.depth = Math.floor(player.y);
+    depthEl.innerText = player.depth;
+
+    if (player.y < 0) player.y = 0;
+    if (player.x < 20) player.x = 20;
+    if (player.x > canvas.width - 20) player.x = canvas.width - 20;
+
+    spawnEntities();
+
+    bubbles.forEach((b, i) => {
+        b.y -= b.speed;
+        if (Math.hypot(player.x - b.x, player.y - b.y) < 35) {
+            player.oxygen = Math.min(100, player.oxygen + 15);
+            bubbles.splice(i, 1);
+        }
+        if (b.y < -50) bubbles.splice(i, 1);
+    });
+
+    enemies.forEach((en, i) => {
+        en.y -= en.speed;
+        en.x += Math.sin(Date.now() / 300) * 1.5;
+        if (Math.hypot(player.x - en.x, player.y - en.y) < 30) {
+            player.oxygen -= 15;
+            enemies.splice(i, 1);
+        }
+        if (en.y < -50) enemies.splice(i, 1);
+    });
+
+    // Tysm gemini!! :D - Complex Shark tracking and AI cooldown logic
+    if (shark.active) {
+        if (shark.y < player.y) shark.y += shark.speed * 0.5;
+        if (shark.y > player.y) shark.y -= shark.speed * 0.5;
+        if (shark.x < player.x - 150) shark.x += shark.speed; 
+        if (shark.x > player.x + 150) shark.x -= shark.speed;
+
+        if (shark.x < -shark.width / 2) shark.x = -shark.width / 2;
+        if (shark.x > canvas.width + shark.width / 2) shark.x = canvas.width + shark.width / 2;
+
+        shark.currentCooldown--;
+        if (shark.currentCooldown <= 0) {
+            if (Math.hypot(player.x - shark.x, player.y - shark.y) < 250) { 
+                player.oxygen -= 25; 
+                for(let i=0; i<20; i++) particles.push({x: player.x, y: player.y, dx: Math.random()*8-4, dy: Math.random()*8-4, life: 30, color: 'red'});
+            }
+            shark.currentCooldown = shark.attackCooldown;
+        }
+    }
+
+    particles.forEach((p, i) => {
+        p.x += p.dx; p.y += p.dy; p.life--;
+        if(p.life <= 0) particles.splice(i, 1);
+    });
+
+    zaps.forEach((z, i) => { z.timer--; if (z.timer <= 0) zaps.splice(i, 1); });
+
+    if (player.oxygen <= 0) {
+        gameActive = false;
+        alert("Oxygen Depleted! Depth: " + player.depth + "m");
+        location.reload();
+    }
+}
+
+// Tysm gemini!! :D - Complex bezier/ellipse drawing for shark anatomy
+function drawShark() {
+    ctx.fillStyle = "#4a6c8a"; 
+    ctx.strokeStyle = "#2e4254"; 
+    ctx.lineWidth = 2;
+
+    ctx.beginPath();
+    ctx.ellipse(shark.x, shark.y, shark.width * 0.5, shark.height * 0.4, -0.1, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.beginPath();
+    ctx.moveTo(shark.x - shark.width * 0.5, shark.y);
+    ctx.lineTo(shark.x - shark.width * 0.8, shark.y - shark.height * 0.4);
+    ctx.lineTo(shark.x - shark.width * 0.8, shark.y + shark.height * 0.4);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.beginPath();
+    ctx.moveTo(shark.x - shark.width * 0.2, shark.y - shark.height * 0.4);
+    ctx.lineTo(shark.x - shark.width * 0.05, shark.y - shark.height * 0.7);
+    ctx.lineTo(shark.x + shark.width * 0.1, shark.y - shark.height * 0.4);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.beginPath();
+    ctx.ellipse(shark.x + shark.width * 0.1, shark.y + shark.height * 0.3, shark.width * 0.15, shark.height * 0.1, 0.5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.fillStyle = "white";
+    ctx.beginPath();
+    ctx.arc(shark.x + shark.width * 0.4, shark.y - shark.height * 0.1, 5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "black";
+    ctx.beginPath();
+    ctx.arc(shark.x + shark.width * 0.4, shark.y - shark.height * 0.1, 2, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.strokeStyle = "#3a566f";
+    ctx.beginPath();
+    ctx.moveTo(shark.x + shark.width * 0.3, shark.y - shark.height * 0.2);
+    ctx.lineTo(shark.x + shark.width * 0.25, shark.y + shark.height * 0.1);
+    ctx.moveTo(shark.x + shark.width * 0.35, shark.y - shark.height * 0.15);
+    ctx.lineTo(shark.x + shark.width * 0.3, shark.y + shark.height * 0.15);
+    ctx.stroke();
+
+    ctx.strokeStyle = "darkred";
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.arc(shark.x + shark.width * 0.45, shark.y + shark.height * 0.05, 15, Math.PI * 0.7, Math.PI * 1.3);
+    ctx.stroke();
+
+    if (shark.currentCooldown > shark.attackCooldown / 2) {
+        ctx.shadowBlur = 10;
+        ctx.shadowColor = "red";
+    }
+}
+
+function draw() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    particles.forEach(p => {
+        ctx.fillStyle = p.color;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, 2, 0, Math.PI*2);
+        ctx.fill();
+    });
+
+    ctx.fillStyle = "#ffcc00";
+    ctx.fillRect(player.x - 20, player.y - 10, 40, 20);
+    ctx.fillStyle = "#333";
+    ctx.fillRect(player.x - 5, player.y - 18, 10, 8); 
+
+    ctx.strokeStyle = "rgba(255, 255, 255, 0.8)";
+    ctx.lineWidth = 2;
+    bubbles.forEach(b => {
+        ctx.beginPath();
+        ctx.arc(b.x, b.y, b.size / 2, 0, Math.PI * 2);
+        ctx.stroke();
+    });
+
+    ctx.fillStyle = "#ff66cc";
+    enemies.forEach(en => {
+        ctx.beginPath();
+        ctx.ellipse(en.x, en.y, en.size, en.size*0.8, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = "#ff66cc";
+        for(let i=-2; i<=2; i++) {
+            ctx.beginPath();
+            ctx.moveTo(en.x + (i*5), en.y);
+            ctx.lineTo(en.x + (i*5), en.y + 20 + Math.sin(Date.now()/100)*5);
+            ctx.stroke();
+        }
+    });
+
+    if (shark.active) {
+        drawShark();
+    }
+
+    ctx.shadowBlur = 15; ctx.shadowColor = "#00ffff";
+    ctx.strokeStyle = "#ffffff"; ctx.lineWidth = 3;
+    zaps.forEach(z => {
+        ctx.beginPath();
+        z.lines.forEach(l => { ctx.moveTo(l.x1, l.y1); ctx.lineTo(l.x2, l.y2); });
+        ctx.stroke();
+    });
+    ctx.shadowBlur = 0; 
+
+    if(gameActive) requestAnimationFrame(() => { update(); draw(); });
+}
+// i used ai for heavy lifting, about 1/25th of my project is AI. All assest are handmade, im human too so they dont look good, and have fun. :D
+</script>
+</body>
+</html>
